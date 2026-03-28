@@ -43,6 +43,24 @@ type DraftAgent = {
     provider: string;
 };
 
+function SessionTimer() {
+    const [sessionTime, setSessionTime] = useState(0);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setSessionTime((prev) => prev + 1);
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, []);
+
+    return (
+        <span style={{ fontSize: "0.9rem", color: "#666" }}>
+            Session Active: {sessionTime}s
+        </span>
+    );
+}
+
 function App() {
     const [data, setData] = useState<AgentData | null>(null);
     const [loading, setLoading] = useState(false);
@@ -67,15 +85,6 @@ function App() {
         localStorage.setItem("savedAgents", JSON.stringify(updatedAgents));
     };
 
-    const [sessionTime, setSessionTime] = useState(0);
-
-    useEffect(() => {
-        const interval = setInterval(() => {
-            setSessionTime((prev) => prev + 1);
-        }, 1000);
-        return () => clearInterval(interval);
-    }, []);
-
     useEffect(() => {
         // Load saved agents from local storage on component mount
         const saved = localStorage.getItem("savedAgents");
@@ -87,17 +96,6 @@ function App() {
             }
         }
     }, []);
-
-    useEffect(() => {
-        const analyticsInterval = setInterval(() => {
-            // resolved duplicate console logs & added dependency to trigger only when agentName changes
-            console.log(
-                `[Analytics Heartbeat] User is working on agent name: "${agentName || "Unnamed Draft"}"`,
-            );
-        }, 8000);
-
-        return () => clearInterval(analyticsInterval);
-    }, [agentName]);
 
     const fetchAPI = async () => {
         setLoading(true);
@@ -204,19 +202,16 @@ function App() {
         if (!data) return new Map();
         return new Map(data.agentProfiles.map((prof) => [prof.id, prof]));
     }, [data]);
-    console.log("Profile Map for quick lookup:", profileMap);
 
     const skillMap = useMemo(() => {
         if (!data) return new Map();
         return new Map(data.skills.map((skill) => [skill.id, skill]));
     }, [data]);
-    console.log("Skill Map for quick lookup:", skillMap);
 
     const layerMap = useMemo(() => {
         if (!data) return new Map();
         return new Map(data.layers.map((layer) => [layer.id, layer]));
     }, [data]);
-    console.log("Layer Map for quick lookup:", layerMap);
 
     return (
         <div
@@ -243,12 +238,7 @@ function App() {
                             ? "Fetching Configuration..."
                             : "Reload Configuration Data"}
                     </button>
-                    <span
-                        className="text-yellow-500"
-                        style={{ fontSize: "0.9rem", color: "#666" }}
-                    >
-                        Session Active: {sessionTime}s
-                    </span>
+                    <SessionTimer />
                 </div>
             </header>
 
