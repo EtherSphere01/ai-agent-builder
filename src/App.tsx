@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { toast, Toaster } from "sonner";
 
 // Define the types based on data.json
 interface AgentProfile {
@@ -43,6 +44,15 @@ type DraftAgent = {
     provider: string;
 };
 
+const INITIAL_DRAFT_AGENT: DraftAgent = {
+    profileId: "",
+    skillIds: [],
+    layerIds: [],
+    provider: "",
+};
+
+const PROVIDERS = ["Gemini", "ChatGPT", "Kimi", "Claude", "DeepSeek"];
+
 function SessionTimer() {
     const [sessionTime, setSessionTime] = useState(0);
 
@@ -74,7 +84,7 @@ function SessionTimer() {
     };
 
     return (
-        <span style={{ fontSize: "0.9rem", color: "#666" }}>
+        <span className="text-sm text-slate-600">
             Session Active: {formatSessionTime(sessionTime)}
         </span>
     );
@@ -85,15 +95,13 @@ function App() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const [draftAgent, setDraftAgent] = useState<DraftAgent>({
-        profileId: "",
-        skillIds: [],
-        layerIds: [],
-        provider: "",
-    });
+    const [draftAgent, setDraftAgent] =
+        useState<DraftAgent>(INITIAL_DRAFT_AGENT);
 
     // Saving states
     const [agentName, setAgentName] = useState("");
+    const [pendingDeleteAgent, setPendingDeleteAgent] =
+        useState<SavedAgent | null>(null);
     const [savedAgents, setSavedAgents] = useState<SavedAgent[]>(() => {
         const saved = localStorage.getItem("savedAgents");
         if (!saved) return [];
@@ -106,75 +114,101 @@ function App() {
         }
     });
 
-    const handleDeleteAgent = (indexToRemove: number) => {
-        const updatedAgents = savedAgents.filter(
-            (_, index) => index !== indexToRemove,
-        );
-        setSavedAgents(updatedAgents);
-    };
+    const handleDeleteAgent = useCallback((id: string) => {
+        setSavedAgents((prev) => prev.filter((agent) => agent.id !== id));
+        toast.success("Saved agent deleted");
+    }, []);
+
+    const handleRequestDeleteAgent = useCallback((agent: SavedAgent) => {
+        setPendingDeleteAgent(agent);
+    }, []);
+
+    const handleCancelDeleteAgent = useCallback(() => {
+        setPendingDeleteAgent(null);
+    }, []);
+
+    const handleConfirmDeleteAgent = useCallback(() => {
+        if (!pendingDeleteAgent) return;
+        handleDeleteAgent(pendingDeleteAgent.id);
+        setPendingDeleteAgent(null);
+    }, [handleDeleteAgent, pendingDeleteAgent]);
 
     useEffect(() => {
         localStorage.setItem("savedAgents", JSON.stringify(savedAgents));
     }, [savedAgents]);
 
-    const fetchAPI = async () => {
+    const fetchAPI = useCallback(async (signal?: AbortSignal) => {
         setLoading(true);
         setError(null);
         try {
-            // Simulate network delay and randomness (1 to 3 seconds)
-            const delay = Math.floor(Math.random() * 2000) + 1000;
-            await new Promise((resolve) => setTimeout(resolve, delay));
-
-            const response = await fetch("/data.json");
+            const response = await fetch("/data.json", { signal });
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             const jsonData: AgentData = await response.json();
+            if (signal?.aborted) return;
             setData(jsonData);
         } catch (err: unknown) {
+            if (err instanceof DOMException && err.name === "AbortError") {
+                return;
+            }
             console.error("Error fetching data:", err);
             const message =
                 err instanceof Error ? err.message : "Failed to fetch data";
             setError(message);
+            toast.error(message);
         } finally {
-            setLoading(false);
+            if (!signal?.aborted) {
+                setLoading(false);
+            }
         }
-    };
+    }, []);
 
     // Fetch data on initial component mount
     useEffect(() => {
-        fetchAPI();
-    }, []);
+        const controller = new AbortController();
+        void fetchAPI(controller.signal);
 
-    const handleLayerSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const layerId = e.target.value;
+        return () => {
+            controller.abort();
+        };
+    }, [fetchAPI]);
 
-        // ensure immutable & safe updates and prevent duplicates
-        setDraftAgent((prev) => ({
-            ...prev,
-            layerIds: prev.layerIds.includes(layerId)
-                ? prev.layerIds
-                : [...prev.layerIds, layerId],
-        }));
-        e.target.value = ""; // Reset dropdown
-    };
+    const handleLayerSelect = useCallback(
+        (e: React.ChangeEvent<HTMLSelectElement>) => {
+            const layerId = e.target.value;
+            if (!layerId) return;
 
-    const handleSkillSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const skillId = e.target.value;
+            setDraftAgent((prev) => ({
+                ...prev,
+                layerIds: prev.layerIds.includes(layerId)
+                    ? prev.layerIds
+                    : [...prev.layerIds, layerId],
+            }));
+            e.target.value = "";
+        },
+        [],
+    );
 
-        // ensure immutable & safe updates and prevent duplicates
-        setDraftAgent((prev) => ({
-            ...prev,
-            skillIds: prev.skillIds.includes(skillId)
-                ? prev.skillIds
-                : [...prev.skillIds, skillId],
-        }));
-        e.target.value = ""; // Reset dropdown
-    };
+    const handleSkillSelect = useCallback(
+        (e: React.ChangeEvent<HTMLSelectElement>) => {
+            const skillId = e.target.value;
+            if (!skillId) return;
 
-    const handleSaveAgent = () => {
+            setDraftAgent((prev) => ({
+                ...prev,
+                skillIds: prev.skillIds.includes(skillId)
+                    ? prev.skillIds
+                    : [...prev.skillIds, skillId],
+            }));
+            e.target.value = "";
+        },
+        [],
+    );
+
+    const handleSaveAgent = useCallback(() => {
         if (!agentName.trim()) {
-            alert("Please enter a name for your agent.");
+            toast.error("Please enter a name for your agent");
             return;
         }
 
@@ -187,13 +221,12 @@ function App() {
             provider: draftAgent.provider,
         };
 
-        const updatedAgents = [...savedAgents, newAgent];
-        setSavedAgents(updatedAgents);
+        setSavedAgents((prev) => [...prev, newAgent]);
         setAgentName("");
-        alert(`Agent "${newAgent.name}" saved successfully!`);
-    };
+        toast.success(`Agent "${newAgent.name}" saved successfully`);
+    }, [agentName, draftAgent]);
 
-    const handleLoadAgent = (agent: SavedAgent) => {
+    const handleLoadAgent = useCallback((agent: SavedAgent) => {
         setDraftAgent({
             profileId: agent.profileId || "",
             skillIds: [...(agent.skillIds || [])],
@@ -201,7 +234,24 @@ function App() {
             provider: agent.provider || "",
         });
         setAgentName(agent.name);
-    };
+        toast.success(`Loaded "${agent.name}"`);
+    }, []);
+
+    const handleResetBuilder = useCallback(() => {
+        setDraftAgent(INITIAL_DRAFT_AGENT);
+        setAgentName("");
+        toast.message("Builder reset");
+    }, []);
+
+    const handleClearAllSavedAgents = useCallback(() => {
+        if (savedAgents.length === 0) {
+            toast.message("No saved agents to clear");
+            return;
+        }
+
+        setSavedAgents([]);
+        toast.success("Cleared all saved agents");
+    }, [savedAgents.length]);
 
     const handleRemoveSkill = useCallback((skillId: string) => {
         setDraftAgent((prev) => ({
@@ -232,98 +282,73 @@ function App() {
         return new Map(data.layers.map((layer) => [layer.id, layer]));
     }, [data]);
 
+    const selectedProfile = profileMap.get(draftAgent.profileId);
+
     return (
-        <div
-            style={{
-                display: "flex",
-                flexDirection: "column",
-                minHeight: "100vh",
-                padding: "1rem",
-                fontFamily: "sans-serif",
-            }}
-        >
-            <header style={{ marginBottom: "2rem" }}>
-                <h1>AI Agent Builder</h1>
-                <p>Design your custom AI personality and capability set.</p>
-                <div
-                    style={{
-                        display: "flex",
-                        gap: "1rem",
-                        alignItems: "center",
-                    }}
-                >
-                    <button onClick={fetchAPI} disabled={loading}>
+        <div className="min-h-screen bg-[linear-gradient(120deg,#f8fafc_0%,#e2e8f0_45%,#f1f5f9_100%)] px-4 py-6 text-slate-900">
+            <Toaster richColors position="top-right" />
+            <header className="mx-auto mb-8 flex w-full max-w-7xl flex-col gap-4 rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm backdrop-blur">
+                <div>
+                    <h1 className="text-3xl font-extrabold tracking-tight">
+                        AI Agent Builder
+                    </h1>
+                    <p className="mt-1 text-slate-600">
+                        Design your custom AI personality and capability set.
+                    </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                    <button
+                        onClick={() => void fetchAPI()}
+                        disabled={loading}
+                        className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                    >
                         {loading
-                            ? "Fetching Configuration..."
+                            ? "Refreshing..."
                             : "Reload Configuration Data"}
+                    </button>
+                    <button
+                        onClick={handleResetBuilder}
+                        className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                    >
+                        Reset Builder
                     </button>
                     <SessionTimer />
                 </div>
             </header>
 
-            <main
-                style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "2rem",
-                    flex: 1,
-                }}
-            >
-                <div
-                    style={{
-                        display: "flex",
-                        gap: "2rem",
-                        flexDirection: "row",
-                    }}
-                >
+            <main className="mx-auto flex w-full max-w-7xl flex-col gap-8">
+                <div className="grid gap-6 lg:grid-cols-2">
                     {/* Left pane: Selections */}
-                    <section
-                        style={{
-                            flex: "1 1 50%",
-                            borderRight: "1px solid #ccc",
-                            paddingRight: "1rem",
-                        }}
-                    >
-                        <h2>Configuration Options</h2>
+                    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                        <h2 className="text-xl font-bold">
+                            Configuration Options
+                        </h2>
                         {error && (
-                            <div style={{ color: "red", marginBottom: "1rem" }}>
+                            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                                 Error: {error}
                             </div>
                         )}
 
-                        {/* Show loading state explicitly */}
                         {loading && (
-                            <div
-                                style={{
-                                    padding: "2rem",
-                                    background: "#f0f8ff",
-                                    border: "1px dashed #0066cc",
-                                    marginBottom: "1rem",
-                                }}
-                            >
-                                Fetching simulated API... (this takes 1-3
-                                seconds to test loading states)
+                            <div className="mt-4 rounded-xl border border-dashed border-sky-400 bg-sky-50 p-4 text-sm text-sky-800">
+                                Fetching configuration...
                             </div>
                         )}
 
-                        {!data && !loading && !error && <p>No data loaded.</p>}
+                        {!data && !loading && !error && (
+                            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600">
+                                No configuration loaded yet. Click "Reload
+                                Configuration Data" to fetch your agent building
+                                blocks.
+                            </div>
+                        )}
 
                         {data && (
-                            <div
-                                style={{
-                                    display: "flex",
-                                    flexDirection: "column",
-                                    gap: "1.5rem",
-                                }}
-                            >
+                            <div className="mt-5 space-y-5">
                                 <div>
                                     <label
                                         htmlFor="profile-select"
-                                        style={{
-                                            display: "block",
-                                            fontWeight: "bold",
-                                            marginBottom: "0.5rem",
-                                        }}
+                                        className="mb-2 block text-sm font-semibold text-slate-700"
                                     >
                                         Base Profile:
                                     </label>
@@ -336,10 +361,7 @@ function App() {
                                                 profileId: e.target.value,
                                             }));
                                         }}
-                                        style={{
-                                            width: "100%",
-                                            padding: "0.5rem",
-                                        }}
+                                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-sky-200 transition focus:ring"
                                     >
                                         <option value="">
                                             -- Select a Profile --
@@ -355,11 +377,7 @@ function App() {
                                 <div>
                                     <label
                                         htmlFor="skill-select"
-                                        style={{
-                                            display: "block",
-                                            fontWeight: "bold",
-                                            marginBottom: "0.5rem",
-                                        }}
+                                        className="mb-2 block text-sm font-semibold text-slate-700"
                                     >
                                         Add Skill:
                                     </label>
@@ -367,10 +385,7 @@ function App() {
                                         id="skill-select"
                                         onChange={handleSkillSelect}
                                         defaultValue=""
-                                        style={{
-                                            width: "100%",
-                                            padding: "0.5rem",
-                                        }}
+                                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-sky-200 transition focus:ring"
                                     >
                                         <option value="" disabled>
                                             -- Select a Skill to Add --
@@ -386,11 +401,7 @@ function App() {
                                 <div>
                                     <label
                                         htmlFor="layer-select"
-                                        style={{
-                                            display: "block",
-                                            fontWeight: "bold",
-                                            marginBottom: "0.5rem",
-                                        }}
+                                        className="mb-2 block text-sm font-semibold text-slate-700"
                                     >
                                         Add Personality Layer:
                                     </label>
@@ -398,10 +409,7 @@ function App() {
                                         id="layer-select"
                                         onChange={handleLayerSelect}
                                         defaultValue=""
-                                        style={{
-                                            width: "100%",
-                                            padding: "0.5rem",
-                                        }}
+                                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-sky-200 transition focus:ring"
                                     >
                                         <option value="" disabled>
                                             -- Select a Layer to Add --
@@ -417,11 +425,7 @@ function App() {
                                 <div>
                                     <label
                                         htmlFor="provider-select"
-                                        style={{
-                                            display: "block",
-                                            fontWeight: "bold",
-                                            marginBottom: "0.5rem",
-                                        }}
+                                        className="mb-2 block text-sm font-semibold text-slate-700"
                                     >
                                         AI Provider:
                                     </label>
@@ -434,21 +438,12 @@ function App() {
                                                 provider: e.target.value,
                                             }))
                                         }
-                                        style={{
-                                            width: "100%",
-                                            padding: "0.5rem",
-                                        }}
+                                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-sky-200 transition focus:ring"
                                     >
                                         <option value="">
                                             -- Select an AI Provider --
                                         </option>
-                                        {[
-                                            "Gemini",
-                                            "ChatGPT",
-                                            "Kimi",
-                                            "Claude",
-                                            "DeepSeek",
-                                        ].map((provider) => (
+                                        {PROVIDERS.map((provider) => (
                                             <option
                                                 key={provider}
                                                 value={provider}
@@ -463,38 +458,32 @@ function App() {
                     </section>
 
                     {/* Right pane: Selected configuration preview */}
-                    <section style={{ flex: "1 1 50%", paddingLeft: "1rem" }}>
-                        <h2>Current Agent Configuration</h2>
+                    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                        <h2 className="text-xl font-bold">
+                            Current Agent Configuration
+                        </h2>
 
-                        <div
-                            style={{
-                                background: "#f5f5f5",
-                                padding: "1rem",
-                                borderRadius: "8px",
-                                minHeight: "300px",
-                            }}
-                        >
-                            <h3 style={{ marginTop: 0 }}>Profile</h3>
+                        <div className="mt-5 space-y-5 rounded-xl bg-slate-50 p-4">
+                            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                                Profile
+                            </h3>
                             {draftAgent.profileId && data ? (
-                                <p>
-                                    <strong>
-                                        {
-                                            profileMap.get(draftAgent.profileId)
-                                                ?.name
-                                        }
-                                    </strong>
-                                    :{" "}
-                                    {profileMap.get(draftAgent.profileId)
-                                        ?.description ??
+                                <p className="rounded-lg border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-700">
+                                    <span className="mr-2 inline-flex rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                                        {selectedProfile?.name}
+                                    </span>
+                                    {selectedProfile?.description ??
                                         "Profile details unavailable"}
                                 </p>
                             ) : (
-                                <p style={{ color: "#888" }}>
+                                <p className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">
                                     No profile selected.
                                 </p>
                             )}
 
-                            <h3>Selected Skills</h3>
+                            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                                Selected Skills
+                            </h3>
 
                             {draftAgent.skillIds.length > 0 && data ? (
                                 <ul className="pl-6 space-y-2">
@@ -506,9 +495,9 @@ function App() {
                                         return (
                                             <li
                                                 key={skillId}
-                                                className="flex items-center justify-between bg-gray-100 px-3 py-2 rounded-md"
+                                                className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2"
                                             >
-                                                <span className="font-medium">
+                                                <span className="font-medium text-slate-800">
                                                     {skill.name}
                                                 </span>
 
@@ -518,7 +507,7 @@ function App() {
                                                             skillId,
                                                         )
                                                     }
-                                                    className="text-sm text-red-500 hover:text-red-700 transition"
+                                                    className="rounded-md px-2 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-50"
                                                 >
                                                     Remove
                                                 </button>
@@ -527,12 +516,14 @@ function App() {
                                     })}
                                 </ul>
                             ) : (
-                                <p className="text-gray-400">
+                                <p className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">
                                     No skills added.
                                 </p>
                             )}
 
-                            <h3>Selected Layers</h3>
+                            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                                Selected Layers
+                            </h3>
 
                             {draftAgent.layerIds.length > 0 && data ? (
                                 <ul className="pl-6 space-y-2">
@@ -544,9 +535,9 @@ function App() {
                                         return (
                                             <li
                                                 key={layerId}
-                                                className="flex items-center justify-between bg-purple-50 border border-purple-200 px-3 py-2 rounded-md"
+                                                className="flex items-center justify-between rounded-md border border-violet-200 bg-violet-50 px-3 py-2"
                                             >
-                                                <span className="font-medium">
+                                                <span className="font-medium text-violet-900">
                                                     {layer.name}
                                                 </span>
 
@@ -556,7 +547,7 @@ function App() {
                                                             layerId,
                                                         )
                                                     }
-                                                    className="text-sm text-red-500 hover:text-red-700 transition"
+                                                    className="rounded-md px-2 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-100"
                                                 >
                                                     Remove
                                                 </button>
@@ -565,33 +556,31 @@ function App() {
                                     })}
                                 </ul>
                             ) : (
-                                <p className="text-gray-400">
+                                <p className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">
                                     No layers added.
                                 </p>
                             )}
 
-                            <h3>Selected Provider</h3>
+                            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                                Selected Provider
+                            </h3>
                             {draftAgent.provider ? (
-                                <p>
-                                    <strong>{draftAgent.provider}</strong>
+                                <p className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
+                                    <strong className="inline-flex rounded-md bg-sky-100 px-2 py-0.5 text-sky-700">
+                                        {draftAgent.provider}
+                                    </strong>
                                 </p>
                             ) : (
-                                <p style={{ color: "#888" }}>
+                                <p className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">
                                     No provider selected.
                                 </p>
                             )}
 
-                            <div
-                                style={{
-                                    marginTop: "2rem",
-                                    borderTop: "1px solid #ddd",
-                                    paddingTop: "1rem",
-                                }}
-                            >
-                                <h3 style={{ marginTop: 0 }}>
+                            <div className="mt-6 border-t border-slate-200 pt-4">
+                                <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
                                     Save This Agent
                                 </h3>
-                                <div style={{ display: "flex", gap: "0.5rem" }}>
+                                <div className="flex gap-2">
                                     <input
                                         type="text"
                                         placeholder="Enter agent name..."
@@ -599,11 +588,12 @@ function App() {
                                         onChange={(e) =>
                                             setAgentName(e.target.value)
                                         }
-                                        style={{ flex: 1, padding: "0.5rem" }}
+                                        className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-sky-200 transition focus:ring"
                                     />
                                     <button
                                         onClick={handleSaveAgent}
-                                        style={{ padding: "0.5rem 1rem" }}
+                                        disabled={!agentName.trim()}
+                                        className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-300"
                                     >
                                         Save Agent
                                     </button>
@@ -614,156 +604,105 @@ function App() {
                 </div>
 
                 {/* Bottom Panel: Saved Agents */}
-                {savedAgents.length > 0 && (
-                    <section
-                        style={{
-                            padding: "1.5rem",
-                            background: "#e0f7fa",
-                            borderRadius: "8px",
-                        }}
-                    >
-                        <div
-                            style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "center",
-                                marginBottom: "1rem",
-                            }}
-                        >
-                            <h2 style={{ margin: 0 }}>Saved Agents</h2>
+                {savedAgents.length > 0 ? (
+                    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                            <h2 className="text-xl font-bold">Saved Agents</h2>
                             <button
-                                onClick={() => {
-                                    if (
-                                        confirm(
-                                            "Are you sure you want to clear all saved agents?",
-                                        )
-                                    ) {
-                                        setSavedAgents([]);
-                                        localStorage.removeItem("savedAgents");
-                                    }
-                                }}
-                                style={{
-                                    padding: "0.5rem 1rem",
-                                    background: "#d32f2f",
-                                    color: "white",
-                                    border: "none",
-                                    borderRadius: "4px",
-                                    cursor: "pointer",
-                                }}
+                                onClick={handleClearAllSavedAgents}
+                                className="rounded-lg border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
                             >
                                 Clear All
                             </button>
                         </div>
-                        <div
-                            style={{
-                                display: "flex",
-                                gap: "1.5rem",
-                                flexWrap: "wrap",
-                            }}
-                        >
-                            {savedAgents.map((agent, index) => (
-                                <div
+                        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                            {savedAgents.map((agent) => (
+                                <article
                                     key={agent.id}
-                                    style={{
-                                        padding: "1rem",
-                                        background: "white",
-                                        borderRadius: "8px",
-                                        border: "1px solid #b2ebf2",
-                                        minWidth: "220px",
-                                        boxShadow: "0 2px 4px rgba(0,0,0,0.05)",
-                                    }}
+                                    className="group rounded-xl border border-cyan-200 bg-cyan-50/40 p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow"
                                 >
-                                    <h3
-                                        style={{
-                                            marginTop: 0,
-                                            color: "#006064",
-                                        }}
-                                    >
+                                    <h3 className="mb-2 text-lg font-bold text-cyan-900">
                                         {agent.name}
                                     </h3>
-                                    <p
-                                        style={{
-                                            margin: "0.5rem 0",
-                                            fontSize: "0.9rem",
-                                        }}
-                                    >
+                                    <p className="my-1 text-sm text-slate-700">
                                         <strong>Profile:</strong>{" "}
-                                        {data?.agentProfiles.find(
-                                            (p) => p.id === agent.profileId,
-                                        )?.name || "None Selected"}
+                                        {profileMap.get(agent.profileId)
+                                            ?.name || "None Selected"}
                                     </p>
-                                    <p
-                                        style={{
-                                            margin: "0.5rem 0",
-                                            fontSize: "0.9rem",
-                                        }}
-                                    >
+                                    <p className="my-1 text-sm text-slate-700">
                                         <strong>Skills:</strong>{" "}
                                         {agent.skillIds?.length || 0} included
                                     </p>
-                                    <p
-                                        style={{
-                                            margin: "0.5rem 0",
-                                            fontSize: "0.9rem",
-                                        }}
-                                    >
+                                    <p className="my-1 text-sm text-slate-700">
                                         <strong>Layers:</strong>{" "}
                                         {agent.layerIds?.length || 0} included
                                     </p>
-                                    <p
-                                        style={{
-                                            margin: "0.5rem 0",
-                                            fontSize: "0.9rem",
-                                        }}
-                                    >
+                                    <p className="my-1 text-sm text-slate-700">
                                         <strong>Provider:</strong>{" "}
                                         {agent.provider || "None"}
                                     </p>
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            gap: "0.5rem",
-                                            marginTop: "1rem",
-                                        }}
-                                    >
+                                    <div className="mt-3 flex gap-2">
                                         <button
                                             onClick={() =>
                                                 handleLoadAgent(agent)
                                             }
-                                            style={{
-                                                flex: 1,
-                                                padding: "0.5rem",
-                                                background: "#00838f",
-                                                color: "white",
-                                                border: "none",
-                                                borderRadius: "4px",
-                                                cursor: "pointer",
-                                            }}
+                                            className="flex-1 rounded-lg bg-cyan-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-cyan-600"
                                         >
                                             Load
                                         </button>
                                         <button
                                             onClick={() =>
-                                                handleDeleteAgent(index)
+                                                handleRequestDeleteAgent(agent)
                                             }
-                                            style={{
-                                                padding: "0.5rem",
-                                                background: "#d32f2f",
-                                                color: "white",
-                                                border: "none",
-                                                borderRadius: "4px",
-                                                cursor: "pointer",
-                                            }}
+                                            className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-rose-500"
                                         >
                                             Delete
                                         </button>
                                     </div>
-                                </div>
+                                </article>
                             ))}
                         </div>
                     </section>
+                ) : (
+                    <section className="rounded-2xl border border-dashed border-slate-300 bg-white/70 p-8 text-center shadow-sm">
+                        <h2 className="text-lg font-semibold text-slate-800">
+                            No Saved Agents Yet
+                        </h2>
+                        <p className="mt-2 text-sm text-slate-600">
+                            Build an agent configuration and save it. Your saved
+                            agents will appear here as reusable cards.
+                        </p>
+                    </section>
                 )}
             </main>
+
+            {pendingDeleteAgent && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
+                    <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+                        <h3 className="text-lg font-bold text-slate-900">
+                            Confirm Deletion
+                        </h3>
+                        <p className="mt-2 text-sm text-slate-600">
+                            Delete saved agent "{pendingDeleteAgent.name}"? This
+                            action cannot be undone.
+                        </p>
+                        <div className="mt-5 flex justify-end gap-2">
+                            <button
+                                onClick={handleCancelDeleteAgent}
+                                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleConfirmDeleteAgent}
+                                className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-500"
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
