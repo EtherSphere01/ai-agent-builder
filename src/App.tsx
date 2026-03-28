@@ -36,20 +36,28 @@ interface SavedAgent {
     provider?: string;
 }
 
+type DraftAgent = {
+    profileId: string;
+    skillIds: string[];
+    layerIds: string[];
+    provider: string;
+};
+
 function App() {
     const [data, setData] = useState<AgentData | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Selection states
-    const [selectedProfile, setSelectedProfile] = useState<string>("");
-    const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-    const [selectedLayers, setSelectedLayers] = useState<string[]>([]);
+    const [draftAgent, setDraftAgent] = useState<DraftAgent>({
+        profileId: "",
+        skillIds: [],
+        layerIds: [],
+        provider: "",
+    });
 
     // Saving states
     const [agentName, setAgentName] = useState("");
     const [savedAgents, setSavedAgents] = useState<SavedAgent[]>([]);
-    const [selectedProvider, setSelectedProvider] = useState<string>("");
 
     const handleDeleteAgent = (indexToRemove: number) => {
         const updatedAgents = savedAgents.filter(
@@ -124,9 +132,12 @@ function App() {
         const layerId = e.target.value;
 
         // ensure immutable & safe updates and prevent duplicates
-        setSelectedLayers((prev) =>
-            prev.includes(layerId) ? prev : [...prev, layerId],
-        );
+        setDraftAgent((prev) => ({
+            ...prev,
+            layerIds: prev.layerIds.includes(layerId)
+                ? prev.layerIds
+                : [...prev.layerIds, layerId],
+        }));
         e.target.value = ""; // Reset dropdown
     };
 
@@ -134,9 +145,12 @@ function App() {
         const skillId = e.target.value;
 
         // ensure immutable & safe updates and prevent duplicates
-        setSelectedSkills((prev) =>
-            prev.includes(skillId) ? prev : [...prev, skillId],
-        );
+        setDraftAgent((prev) => ({
+            ...prev,
+            skillIds: prev.skillIds.includes(skillId)
+                ? prev.skillIds
+                : [...prev.skillIds, skillId],
+        }));
         e.target.value = ""; // Reset dropdown
     };
 
@@ -149,10 +163,10 @@ function App() {
         const newAgent: SavedAgent = {
             id: crypto.randomUUID(),
             name: agentName,
-            profileId: selectedProfile,
-            skillIds: selectedSkills,
-            layerIds: selectedLayers,
-            provider: selectedProvider,
+            profileId: draftAgent.profileId,
+            skillIds: draftAgent.skillIds,
+            layerIds: draftAgent.layerIds,
+            provider: draftAgent.provider,
         };
 
         const updatedAgents = [...savedAgents, newAgent];
@@ -163,19 +177,27 @@ function App() {
     };
 
     const handleLoadAgent = (agent: SavedAgent) => {
-        setSelectedProfile(agent.profileId || "");
-        setSelectedSkills(agent.skillIds || []);
-        setSelectedLayers([...(agent.layerIds || [])]);
+        setDraftAgent({
+            profileId: agent.profileId || "",
+            skillIds: [...(agent.skillIds || [])],
+            layerIds: [...(agent.layerIds || [])],
+            provider: agent.provider || "",
+        });
         setAgentName(agent.name);
-        setSelectedProvider(agent.provider || "");
     };
 
     const handleRemoveSkill = useCallback((skillId: string) => {
-        setSelectedSkills((prev) => prev.filter((id) => id !== skillId));
+        setDraftAgent((prev) => ({
+            ...prev,
+            skillIds: prev.skillIds.filter((id) => id !== skillId),
+        }));
     }, []);
 
     const handleRemoveLayer = useCallback((layerId: string) => {
-        setSelectedLayers((prev) => prev.filter((id) => id !== layerId));
+        setDraftAgent((prev) => ({
+            ...prev,
+            layerIds: prev.layerIds.filter((id) => id !== layerId),
+        }));
     }, []);
 
     const profileMap = useMemo(() => {
@@ -298,9 +320,12 @@ function App() {
                                     </label>
                                     <select
                                         id="profile-select"
-                                        value={selectedProfile}
+                                        value={draftAgent.profileId}
                                         onChange={(e) => {
-                                            setSelectedProfile(e.target.value);
+                                            setDraftAgent((prev) => ({
+                                                ...prev,
+                                                profileId: e.target.value,
+                                            }));
                                         }}
                                         style={{
                                             width: "100%",
@@ -393,9 +418,12 @@ function App() {
                                     </label>
                                     <select
                                         id="provider-select"
-                                        value={selectedProvider}
+                                        value={draftAgent.provider}
                                         onChange={(e) =>
-                                            setSelectedProvider(e.target.value)
+                                            setDraftAgent((prev) => ({
+                                                ...prev,
+                                                provider: e.target.value,
+                                            }))
                                         }
                                         style={{
                                             width: "100%",
@@ -438,16 +466,18 @@ function App() {
                             }}
                         >
                             <h3 style={{ marginTop: 0 }}>Profile</h3>
-                            {selectedProfile && data ? (
+                            {draftAgent.profileId && data ? (
                                 <p>
                                     <strong>
-                                        {profileMap.get(selectedProfile).name}
+                                        {
+                                            profileMap.get(draftAgent.profileId)
+                                                ?.name
+                                        }
                                     </strong>
                                     :{" "}
-                                    {
-                                        profileMap.get(selectedProfile)
-                                            .description
-                                    }
+                                    {profileMap.get(draftAgent.profileId)
+                                        ?.description ??
+                                        "Profile details unavailable"}
                                 </p>
                             ) : (
                                 <p style={{ color: "#888" }}>
@@ -457,9 +487,9 @@ function App() {
 
                             <h3>Selected Skills</h3>
 
-                            {selectedSkills.length > 0 && data ? (
+                            {draftAgent.skillIds.length > 0 && data ? (
                                 <ul className="pl-6 space-y-2">
-                                    {selectedSkills.map((skillId) => {
+                                    {draftAgent.skillIds.map((skillId) => {
                                         const skill = skillMap.get(skillId);
 
                                         if (!skill) return null;
@@ -495,9 +525,9 @@ function App() {
 
                             <h3>Selected Layers</h3>
 
-                            {selectedLayers.length > 0 && data ? (
+                            {draftAgent.layerIds.length > 0 && data ? (
                                 <ul className="pl-6 space-y-2">
-                                    {selectedLayers.map((layerId) => {
+                                    {draftAgent.layerIds.map((layerId) => {
                                         const layer = layerMap.get(layerId);
 
                                         if (!layer) return null; // safety guard
@@ -532,9 +562,9 @@ function App() {
                             )}
 
                             <h3>Selected Provider</h3>
-                            {selectedProvider ? (
+                            {draftAgent.provider ? (
                                 <p>
-                                    <strong>{selectedProvider}</strong>
+                                    <strong>{draftAgent.provider}</strong>
                                 </p>
                             ) : (
                                 <p style={{ color: "#888" }}>
