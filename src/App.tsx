@@ -28,6 +28,7 @@ interface AgentData {
 }
 
 interface SavedAgent {
+    id: string;
     name: string;
     profileId: string;
     skillIds: string[];
@@ -146,6 +147,7 @@ function App() {
         }
 
         const newAgent: SavedAgent = {
+            id: crypto.randomUUID(),
             name: agentName,
             profileId: selectedProfile,
             skillIds: selectedSkills,
@@ -622,7 +624,7 @@ function App() {
                         >
                             {savedAgents.map((agent, index) => (
                                 <div
-                                    key={index}
+                                    key={agent.id}
                                     style={{
                                         padding: "1rem",
                                         background: "white",
