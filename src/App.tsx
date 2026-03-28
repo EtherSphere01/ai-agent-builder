@@ -124,6 +124,8 @@ function App() {
 
     const handleLayerSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const layerId = e.target.value;
+
+        // ensure immutable & safe updates and prevent duplicates
         setSelectedLayers((prev) =>
             prev.includes(layerId) ? prev : [...prev, layerId],
         );
@@ -134,9 +136,11 @@ function App() {
 
     const handleSkillSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const skillId = e.target.value;
-        if (skillId && !selectedSkills.includes(skillId)) {
-            setSelectedSkills([...selectedSkills, skillId]);
-        }
+
+        // ensure immutable & safe updates and prevent duplicates
+        setSelectedSkills((prev) =>
+            prev.includes(skillId) ? prev : [...prev, skillId],
+        );
         e.target.value = ""; // Reset dropdown
 
         fetchAPI();
