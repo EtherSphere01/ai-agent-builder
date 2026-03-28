@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 
 // Define the types based on data.json
 interface AgentProfile {
@@ -167,6 +167,32 @@ function App() {
         setAgentName(agent.name);
         setSelectedProvider(agent.provider || "");
     };
+
+    const handleRemoveSkill = useCallback((skillId: string) => {
+        setSelectedSkills((prev) => prev.filter((id) => id !== skillId));
+    }, []);
+
+    const handleRemoveLayer = useCallback((layerId: string) => {
+        setSelectedLayers((prev) => prev.filter((id) => id !== layerId));
+    }, []);
+
+    const profileMap = useMemo(() => {
+        if (!data) return new Map();
+        return new Map(data.agentProfiles.map((prof) => [prof.id, prof]));
+    }, [data]);
+    console.log("Profile Map for quick lookup:", profileMap);
+
+    const skillMap = useMemo(() => {
+        if (!data) return new Map();
+        return new Map(data.skills.map((skill) => [skill.id, skill]));
+    }, [data]);
+    console.log("Skill Map for quick lookup:", skillMap);
+
+    const layerMap = useMemo(() => {
+        if (!data) return new Map();
+        return new Map(data.layers.map((layer) => [layer.id, layer]));
+    }, [data]);
+    console.log("Layer Map for quick lookup:", layerMap);
 
     return (
         <div
@@ -413,17 +439,12 @@ function App() {
                             {selectedProfile && data ? (
                                 <p>
                                     <strong>
-                                        {
-                                            data.agentProfiles.find(
-                                                (p) => p.id === selectedProfile,
-                                            )?.name
-                                        }
+                                        {profileMap.get(selectedProfile).name}
                                     </strong>
                                     :{" "}
                                     {
-                                        data.agentProfiles.find(
-                                            (p) => p.id === selectedProfile,
-                                        )?.description
+                                        profileMap.get(selectedProfile)
+                                            .description
                                     }
                                 </p>
                             ) : (
@@ -433,35 +454,30 @@ function App() {
                             )}
 
                             <h3>Selected Skills</h3>
+
                             {selectedSkills.length > 0 && data ? (
-                                <ul style={{ paddingLeft: "1.5rem" }}>
+                                <ul className="pl-6 space-y-2">
                                     {selectedSkills.map((skillId) => {
-                                        const skill = data.skills.find(
-                                            (s) => s.id === skillId,
-                                        );
+                                        const skill = skillMap.get(skillId);
+
+                                        if (!skill) return null;
+
                                         return (
                                             <li
                                                 key={skillId}
-                                                style={{
-                                                    marginBottom: "0.5rem",
-                                                }}
+                                                className="flex items-center justify-between bg-gray-100 px-3 py-2 rounded-md"
                                             >
-                                                {skill?.name}
+                                                <span className="font-medium">
+                                                    {skill.name}
+                                                </span>
+
                                                 <button
                                                     onClick={() =>
-                                                        setSelectedSkills(
-                                                            selectedSkills.filter(
-                                                                (id) =>
-                                                                    id !==
-                                                                    skillId,
-                                                            ),
+                                                        handleRemoveSkill(
+                                                            skillId,
                                                         )
                                                     }
-                                                    style={{
-                                                        marginLeft: "1rem",
-                                                        fontSize: "0.8rem",
-                                                        cursor: "pointer",
-                                                    }}
+                                                    className="text-sm text-red-500 hover:text-red-700 transition"
                                                 >
                                                     Remove
                                                 </button>
@@ -470,41 +486,36 @@ function App() {
                                     })}
                                 </ul>
                             ) : (
-                                <p style={{ color: "#888" }}>
+                                <p className="text-gray-400">
                                     No skills added.
                                 </p>
                             )}
 
                             <h3>Selected Layers</h3>
+
                             {selectedLayers.length > 0 && data ? (
-                                <ul style={{ paddingLeft: "1.5rem" }}>
+                                <ul className="pl-6 space-y-2">
                                     {selectedLayers.map((layerId) => {
-                                        const layer = data.layers.find(
-                                            (l) => l.id === layerId,
-                                        );
+                                        const layer = layerMap.get(layerId);
+
+                                        if (!layer) return null; // safety guard
+
                                         return (
                                             <li
                                                 key={layerId}
-                                                style={{
-                                                    marginBottom: "0.5rem",
-                                                }}
+                                                className="flex items-center justify-between bg-purple-50 border border-purple-200 px-3 py-2 rounded-md"
                                             >
-                                                {layer?.name}
+                                                <span className="font-medium">
+                                                    {layer.name}
+                                                </span>
+
                                                 <button
                                                     onClick={() =>
-                                                        setSelectedLayers(
-                                                            selectedLayers.filter(
-                                                                (id) =>
-                                                                    id !==
-                                                                    layerId,
-                                                            ),
+                                                        handleRemoveLayer(
+                                                            layerId,
                                                         )
                                                     }
-                                                    style={{
-                                                        marginLeft: "1rem",
-                                                        fontSize: "0.8rem",
-                                                        cursor: "pointer",
-                                                    }}
+                                                    className="text-sm text-red-500 hover:text-red-700 transition"
                                                 >
                                                     Remove
                                                 </button>
@@ -513,7 +524,7 @@ function App() {
                                     })}
                                 </ul>
                             ) : (
-                                <p style={{ color: "#888" }}>
+                                <p className="text-gray-400">
                                     No layers added.
                                 </p>
                             )}
