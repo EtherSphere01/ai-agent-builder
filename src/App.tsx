@@ -80,7 +80,8 @@ function App() {
     }, []);
 
     useEffect(() => {
-        const analyticsInterval = setInterval(() => { 
+        const analyticsInterval = setInterval(() => {
+            // resolved duplicate console logs & added dependency to trigger only when agentName changes
             console.log(
                 `[Analytics Heartbeat] User is working on agent name: "${agentName || "Unnamed Draft"}"`,
             );
@@ -126,8 +127,6 @@ function App() {
             prev.includes(layerId) ? prev : [...prev, layerId],
         );
         e.target.value = ""; // Reset dropdown
-
-        fetchAPI();
     };
 
     const handleSkillSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -138,8 +137,6 @@ function App() {
             prev.includes(skillId) ? prev : [...prev, skillId],
         );
         e.target.value = ""; // Reset dropdown
-
-        fetchAPI();
     };
 
     const handleSaveAgent = () => {
@@ -276,7 +273,6 @@ function App() {
                                         value={selectedProfile}
                                         onChange={(e) => {
                                             setSelectedProfile(e.target.value);
-                                            fetchAPI();
                                         }}
                                         style={{
                                             width: "100%",
