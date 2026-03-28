@@ -109,9 +109,11 @@ function App() {
             }
             const jsonData: AgentData = await response.json();
             setData(jsonData);
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error("Error fetching data:", err);
-            setError(err.message || "Failed to fetch agent data");
+            const message =
+                err instanceof Error ? err.message : "Failed to fetch data";
+            setError(message);
         } finally {
             setLoading(false);
         }
