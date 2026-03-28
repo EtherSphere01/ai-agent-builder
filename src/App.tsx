@@ -54,9 +54,28 @@ function SessionTimer() {
         return () => clearInterval(interval);
     }, []);
 
+    const formatSessionTime = (totalSeconds: number) => {
+        if (totalSeconds < 60) {
+            return `${totalSeconds}s`;
+        }
+
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+
+        const ss = String(seconds).padStart(2, "0");
+
+        if (hours < 1) {
+            return `${minutes}m ${ss}s`;
+        }
+
+        const mm = String(minutes).padStart(2, "0");
+        return `${hours}h ${mm}m ${ss}s`;
+    };
+
     return (
         <span style={{ fontSize: "0.9rem", color: "#666" }}>
-            Session Active: {sessionTime}s
+            Session Active: {formatSessionTime(sessionTime)}
         </span>
     );
 }
@@ -75,27 +94,28 @@ function App() {
 
     // Saving states
     const [agentName, setAgentName] = useState("");
-    const [savedAgents, setSavedAgents] = useState<SavedAgent[]>([]);
+    const [savedAgents, setSavedAgents] = useState<SavedAgent[]>(() => {
+        const saved = localStorage.getItem("savedAgents");
+        if (!saved) return [];
+
+        try {
+            return JSON.parse(saved) as SavedAgent[];
+        } catch (e) {
+            console.error("Failed to parse saved agents", e);
+            return [];
+        }
+    });
 
     const handleDeleteAgent = (indexToRemove: number) => {
         const updatedAgents = savedAgents.filter(
             (_, index) => index !== indexToRemove,
         );
         setSavedAgents(updatedAgents);
-        localStorage.setItem("savedAgents", JSON.stringify(updatedAgents));
     };
 
     useEffect(() => {
-        // Load saved agents from local storage on component mount
-        const saved = localStorage.getItem("savedAgents");
-        if (saved) {
-            try {
-                setSavedAgents(JSON.parse(saved));
-            } catch (e) {
-                console.error("Failed to parse saved agents", e);
-            }
-        }
-    }, []);
+        localStorage.setItem("savedAgents", JSON.stringify(savedAgents));
+    }, [savedAgents]);
 
     const fetchAPI = async () => {
         setLoading(true);
@@ -169,7 +189,6 @@ function App() {
 
         const updatedAgents = [...savedAgents, newAgent];
         setSavedAgents(updatedAgents);
-        localStorage.setItem("savedAgents", JSON.stringify(updatedAgents));
         setAgentName("");
         alert(`Agent "${newAgent.name}" saved successfully!`);
     };
